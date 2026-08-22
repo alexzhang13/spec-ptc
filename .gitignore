@@ -1,0 +1,16 @@
+# generated / local, at any depth
+__pycache__/
+*.pyc
+*.log
+.venv*/
+.ruff_cache/
+.pytest_cache/
+.endpoints.env
+
+# local-only: cluster scripts, run artifacts, private notes & tests
+infra/
+bench_out/
+tests/
+benchmark/oolong_campaign/runs/
+*.md
+!/README.md
