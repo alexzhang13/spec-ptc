@@ -7,6 +7,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.patches import Patch  # noqa: E402
+import pandas as pd  # noqa: E402
 import seaborn as sns  # noqa: E402
 
 from benchmark.oolong_campaign.analyze import load_units, summarize  # noqa: E402
@@ -122,5 +124,157 @@ def plot_all(base: Path) -> None:
     save(g.figure, "subcall_counts.png")
 
 
+_PAL = {"Base RLM": "#4C72B0", "Speculative PTC": "#DD8452"}
+_CELLS_CSV = Path("benchmark/oolong_campaign/runs/task_rows_corrected.csv")
+_STORM_TASK_S = 2000.0
+_TITLE = "Speculative PTC vs. Base RLM(Qwen3-30B-A3B-Instruct) on OOLONG/OOLONG-Pairs"
+
+
+def _drop_storm_units(df: pd.DataFrame, max_task_s: float = _STORM_TASK_S) -> pd.DataFrame:
+    key = ["block", "spec", "concurrency", "repeat"]
+    keep = df.groupby(key)["wall_s"].transform("max") <= max_task_s
+    return df[keep].copy()
+
+
+def _repeat_frame(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for (block, spec, conc, _rep), g in df.groupby(
+        ["block", "spec", "concurrency", "repeat"]
+    ):
+        rows.append(
+            {
+                "temperature": "0.0" if block == "temp0" else "0.7",
+                "mode": "Speculative PTC" if spec else "Base RLM",
+                "concurrency": int(conc),
+                "wall_s": float(g["unit_wall_s"].iloc[0]),
+                "n_subcalls": float(g["n_subcalls"].mean()),
+                "n_turns": float(g["n_turns"].mean()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def plot_mean_speedup(
+    csv: Path | None = None,
+    out: Path | None = None,
+    drop_storms: bool = True,
+    filename: str = "mean_runtime_traj_no_outliers.png",
+) -> None:
+    """Two temperatures × wall / sub-calls / turns. Concurrency 4 and 8 only."""
+    if csv is None:
+        csv = _CELLS_CSV
+    if out is None:
+        out = Path("benchmark/oolong_campaign/runs/main/figures")
+    out.mkdir(exist_ok=True)
+
+    df = pd.read_csv(csv)
+    df = df[df.model.str.contains("30B")].copy()
+    if drop_storms:
+        df = _drop_storm_units(df)
+    long = _repeat_frame(df)
+    long = long[long["concurrency"].isin((4, 8))]
+
+    metrics = (
+        ("wall_s", "Wall time (s)"),
+        ("n_subcalls", "Sub-calls per task"),
+        ("n_turns", "Turns per task"),
+    )
+    temps = ("0.0", "0.7")
+    bar_kws = dict(
+        x="concurrency",
+        hue="mode",
+        order=[4, 8],
+        hue_order=["Base RLM", "Speculative PTC"],
+        palette=_PAL,
+        errorbar=("ci", 95),
+        n_boot=8000,
+        seed=0,
+        capsize=0.08,
+        err_kws={"linewidth": 1.1, "color": "#2b2b2b"},
+        saturation=1,
+        width=0.72,
+        legend=False,
+        zorder=3,
+    )
+
+    sns.set_theme(style="whitegrid", context="paper", font_scale=1.28)
+    fig = plt.figure(figsize=(11.8, 6.8))
+    gs = fig.add_gridspec(
+        2,
+        4,
+        width_ratios=[0.14, 1.22, 1.05, 1.05],
+        wspace=0.26,
+        hspace=0.34,
+        left=0.035,
+        right=0.985,
+        top=0.80,
+        bottom=0.13,
+    )
+    axes = [[fig.add_subplot(gs[r, c + 1]) for c in range(3)] for r in range(2)]
+    for c in range(3):
+        axes[1][c].sharex(axes[0][c])
+        if c < 2:
+            axes[1][c].sharey(axes[0][c])
+
+    for row, temp in enumerate(temps):
+        lab = fig.add_subplot(gs[row, 0])
+        lab.set_axis_off()
+        lab.text(
+            0.5,
+            0.5,
+            f"Temperature = {temp}",
+            rotation=90,
+            va="center",
+            ha="center",
+            fontsize=12,
+            color="#222222",
+        )
+        sub = long[long["temperature"] == temp]
+        for col, (y, ylabel) in enumerate(metrics):
+            ax = axes[row][col]
+            sns.barplot(data=sub, y=y, ax=ax, **bar_kws)
+            ax.set_axisbelow(True)
+            ax.set_xlabel("Concurrent tasks" if row == 1 else "")
+            ax.set_ylabel("")
+            ax.tick_params(axis="x", labelsize=11)
+            if row == 0:
+                ax.set_title(ylabel, pad=12, fontsize=12)
+                ax.tick_params(labelbottom=False)
+            if y == "n_turns":
+                ax.set_ylim(0, 13)
+            ax.set_xticks([4, 8])
+
+    fig.legend(
+        [Patch(facecolor=_PAL[k], edgecolor="none") for k in _PAL],
+        list(_PAL),
+        loc="upper center",
+        ncol=2,
+        frameon=False,
+        bbox_to_anchor=(0.54, 0.91),
+        fontsize=11,
+        handlelength=1.2,
+        columnspacing=1.8,
+    )
+    fig.suptitle(_TITLE, fontsize=13.5, y=0.985)
+    fig.text(
+        0.54,
+        0.035,
+        "Mean over repeats  ·  95% bootstrap CI  ·  temp 0.7 Base RLM at n=4 "
+        "(units with a task >2000 s excluded)",
+        ha="center",
+        va="center",
+        fontsize=9,
+        color="#555555",
+    )
+    path = out / filename
+    fig.savefig(path, dpi=200)
+    plt.close(fig)
+    print("wrote", path)
+
+
 if __name__ == "__main__":
-    plot_all(Path(sys.argv[1] if len(sys.argv) > 1 else "benchmark/oolong_campaign/runs/main"))
+    args = sys.argv[1:]
+    if args and args[0] == "--mean-ci":
+        plot_mean_speedup()
+    else:
+        plot_all(Path(args[0] if args else "benchmark/oolong_campaign/runs/main"))

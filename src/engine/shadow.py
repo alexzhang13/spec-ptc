@@ -348,8 +348,7 @@ def _comp_local_names(tree: ast.AST) -> set[str]:
     for n in ast.walk(tree):
         if isinstance(n, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
             for g in n.generators:
-                out |= {x.id for x in ast.walk(g.target)
-                        if isinstance(x, ast.Name)}
+                out |= {x.id for x in ast.walk(g.target) if isinstance(x, ast.Name)}
         elif isinstance(n, ast.Lambda):
             out |= {a.arg for a in n.args.args}
     return out

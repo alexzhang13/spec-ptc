@@ -17,6 +17,15 @@ spec-ptc   tokens──────────────────▶ exec:
 
 This repository is a simple library and demo for this technique.
 
+## Benchmarks
+
+Two measurements, deliberately different in kind:
+
+- `benchmark/suite/` — a curriculum of **61 fixed REPL programs** (expected wins, serial floors, adversarial divergence, tool failures, unforkable state, multi-turn forks, plus width/length/rate/concurrency sweeps), each run against a live vLLM endpoint with and without speculation, repeated to average out sub-call latency. Every sub-call is a real LLM request. Because the program is fixed, the comparison isolates execution strategy. Each pattern carries a **pre-registered claim** and a mechanically computed verdict; refuted predictions stay in the table. See `benchmark/suite/SUITE.md`.
+- `benchmark/oolong_campaign/` — end-to-end RLM runs on OOLONG (trec-coarse 132k) and OOLONG-Pairs, live trajectories, r=5, at concurrency 8/4/1.
+
+The suite is also how three engine bugs were found: all three produced correct answers while silently losing speculation, which is invisible to a correctness test.
+
 ## Getting Started
 
 You can either clone this repository (uses `uv`), or install with:
