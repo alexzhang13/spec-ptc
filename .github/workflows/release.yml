@@ -1,0 +1,20 @@
+name: release
+
+# Publishes to PyPI via trusted publishing (OIDC — no API token in secrets).
+# One-time setup on pypi.org: project spec-ptc → Publishing → add GitHub
+# publisher repo=alexzhang13/spec-ptc, workflow=release.yml, environment=pypi.
+on:
+  release:
+    types: [published]
+
+jobs:
+  pypi:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build
+      - run: uv publish

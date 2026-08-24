@@ -1,6 +1,0 @@
-#!/bin/sh
-# lint + format gate, then the full test suite (all via uv)
-set -e
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest -q

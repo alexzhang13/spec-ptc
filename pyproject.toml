@@ -3,20 +3,31 @@ name = "spec-ptc"
 version = "0.1.0"
 description = "Speculative programmatic tool calling for CodeAct/RLM-style harnesses"
 requires-python = ">=3.12"
-dependencies = [
+readme = "README.md"
+authors = [{ name = "Alex Zhang", email = "az@primeintellect.ai" }]
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# the core is stdlib-only; openai is imported lazily by VLLMEngine sub-calls
+dependencies = ["openai>=1.50"]
+
+[project.urls]
+Repository = "https://github.com/alexzhang13/spec-ptc"
+
+[dependency-groups]
+dev = [
+    # demos / benchmarks / example.py only — never shipped with the wheel
+    "rlms>=0.1",
     "textual>=1.0",
-    "openai>=1.50",
     "rich>=13.0",
     "datasets>=5.0.1",
     "huggingface-hub>=1.28.0",
     "seaborn>=0.13.2",
     "matplotlib>=3.11.1",
     "pandas>=3.0.5",
-]
-
-[dependency-groups]
-dev = [
-    "rlms>=0.1",  # only example.py / demo/rlm.py / their tests touch it
     "pytest>=8.0",
     "pytest-asyncio>=1.4.0",
     "pytest-timeout>=2.3",
