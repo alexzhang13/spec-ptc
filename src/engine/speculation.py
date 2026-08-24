@@ -686,6 +686,7 @@ def _async_real_hook(tool: ToolSpec, reg: ToolRegistry, store: SpecStore, bus: E
                         already_ready=spec.done.is_set(),
                     )
                     claimed.append((i, spec))
+
             # the misses' batch call and every claim wait overlap
             async def _fill_misses():
                 if not misses:
@@ -699,9 +700,7 @@ def _async_real_hook(tool: ToolSpec, reg: ToolRegistry, store: SpecStore, bus: E
                 spec.state = "claimed"
                 spec.t_claim = time.perf_counter()
 
-            await asyncio.gather(
-                _fill_misses(), *[_fill_claim(i, s) for i, s in claimed]
-            )
+            await asyncio.gather(_fill_misses(), *[_fill_claim(i, s) for i, s in claimed])
             return out
         key = spec_key(_tool, tuple(args), kwargs)
         t0 = time.perf_counter()
@@ -710,7 +709,11 @@ def _async_real_hook(tool: ToolSpec, reg: ToolRegistry, store: SpecStore, bus: E
             bus.emit("claim_miss", key=key, tool=_tool.name)
             return await _tool.fn(*args, **kwargs)  # miss: the baseline path
         bus.emit(
-            "claim_hit", key=key, seq=spec.seq, tool=_tool.name, already_ready=spec.done.is_set()
+            "claim_hit",
+            key=key,
+            seq=spec.seq,
+            tool=_tool.name,
+            already_ready=spec.done.is_set(),
         )
         result = await _await_spec(spec)
         spec.state = "claimed"

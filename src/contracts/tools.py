@@ -147,10 +147,12 @@ def contains_nonspec(obj: Any, depth: int = 3) -> bool:
 
 
 def _is_async_callable(fn: Any) -> bool:
-    """True for `async def` tools (incl. partials / __call__ coroutines)."""
+    """True for `async def` tools (incl. partials, and objects whose
+    __call__ is a coroutine function)."""
     if inspect.iscoroutinefunction(fn):
         return True
-    call = getattr(type(fn), "__call__", None)
+    # B004's callable() fix is wrong here: we test whether __call__ is async.
+    call = getattr(type(fn), "__call__", None)  # noqa: B004
     return call is not None and inspect.iscoroutinefunction(call)
 
 

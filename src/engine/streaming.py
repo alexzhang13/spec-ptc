@@ -565,7 +565,16 @@ def _unroll_for(
     for stmt in loop.body:
         if isinstance(
             stmt,
-            (ast.If, ast.While, ast.Try, ast.For, ast.FunctionDef, ast.AsyncFor, ast.AsyncWith, ast.AsyncFunctionDef),
+            (
+                ast.If,
+                ast.While,
+                ast.Try,
+                ast.For,
+                ast.FunctionDef,
+                ast.AsyncFor,
+                ast.AsyncWith,
+                ast.AsyncFunctionDef,
+            ),
         ):
             if not _no_calls_after(loop.body, stmt):
                 return []  # calls hide in/after control flow: no bet
