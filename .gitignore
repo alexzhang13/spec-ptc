@@ -18,3 +18,5 @@ benchmark/oolong_campaign/runs/
 *.md
 *.sbatch
 !/README.md
+benchmark/suite/.endpoint.env
+benchmark/suite/results/
