@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -26,6 +27,7 @@ class ToolSpec:
 
     name: str
     fn: Callable[..., Any]  # the real implementation
+    is_async: bool = False  # fn is a coroutine function: awaited, not called
     speculatable: bool = False
     pure: bool = False
     deterministic: bool = False
@@ -71,6 +73,11 @@ class Tool:
         return True
 
 
+async def _identity(v: Any) -> Any:
+    """Await-protocol shim: completes immediately with `v`, never suspends."""
+    return v
+
+
 class NonSpeculated:
     """Inert marker a non-speculatable tool returns in the SHADOW. Storing it
     is fine; using it (any operation, or passing it into a speculatable
@@ -90,6 +97,11 @@ class NonSpeculated:
 
     def __getattr__(self, k):
         self._boom()
+
+    def __await__(self):
+        # `x = await slow_tool()` in the shadow: stay a marker so taint flows
+        # by value instead of aborting on an un-awaitable object.
+        return _identity(self).__await__()
 
     def __str__(self):
         self._boom()
@@ -134,6 +146,14 @@ def contains_nonspec(obj: Any, depth: int = 3) -> bool:
     return False
 
 
+def _is_async_callable(fn: Any) -> bool:
+    """True for `async def` tools (incl. partials / __call__ coroutines)."""
+    if inspect.iscoroutinefunction(fn):
+        return True
+    call = getattr(type(fn), "__call__", None)
+    return call is not None and inspect.iscoroutinefunction(call)
+
+
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, ToolSpec] = {}
@@ -161,6 +181,7 @@ class ToolRegistry:
         spec = ToolSpec(
             name=name,
             fn=fn,
+            is_async=_is_async_callable(fn),
             speculatable=speculatable,
             pure=pure,
             deterministic=deterministic,

@@ -81,6 +81,7 @@ def snapshot_ns(ns: dict) -> dict:
 # turns. random/os/time stay blocked (nondeterminism / effects).
 _SHADOW_IMPORT_WHITELIST = {
     "re",
+    "asyncio",  # async tools: model code needs run/gather to reach the hooks
     "json",
     "math",
     "itertools",

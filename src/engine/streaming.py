@@ -563,7 +563,10 @@ def _unroll_for(
         items = items[:MAX_UNROLL]
     plannable: list[ast.stmt] = []
     for stmt in loop.body:
-        if isinstance(stmt, (ast.If, ast.While, ast.Try, ast.For, ast.FunctionDef)):
+        if isinstance(
+            stmt,
+            (ast.If, ast.While, ast.Try, ast.For, ast.FunctionDef, ast.AsyncFor, ast.AsyncWith, ast.AsyncFunctionDef),
+        ):
             if not _no_calls_after(loop.body, stmt):
                 return []  # calls hide in/after control flow: no bet
             break  # plan the straight-line prefix, all items

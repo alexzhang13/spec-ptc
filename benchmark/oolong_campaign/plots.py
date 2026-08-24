@@ -355,8 +355,6 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     if args and args[0] == "--mean-ci":
         plot_mean_speedup()
-        plot_mean_speedup(
-            drop_storms=False, filename="mean_runtime_traj_with_outliers.png"
-        )
+        plot_mean_speedup(drop_storms=False, filename="mean_runtime_traj_with_outliers.png")
     else:
         plot_all(Path(args[0] if args else "benchmark/oolong_campaign/runs/main"))

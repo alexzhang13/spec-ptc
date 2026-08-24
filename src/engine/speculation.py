@@ -3,6 +3,8 @@ Launcher + Budget, and the three hook modes (baseline / real-claim / shadow-disp
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import threading
 import time
 from collections import deque
@@ -83,6 +85,11 @@ class ForceTracker:
             return self.forced_total + cur
 
 
+async def _identity(v: Any) -> Any:
+    """Await-protocol shim: completes immediately with `v`, never suspends."""
+    return v
+
+
 class SpecValue:
     __slots__ = ("_spec", "_val")
 
@@ -104,6 +111,12 @@ class SpecValue:
                     tracker.end()
             object.__setattr__(self, "_val", val)
         return val
+
+    def __await__(self):
+        """`x = await llm(...)` binds the LAZY proxy, exactly like the sync
+        form — awaiting must not be the force point, or every async tool
+        call would block at its own await instead of at first use."""
+        return _identity(self).__await__()
 
     # ---- everything below forces ----
     def __str__(self):
@@ -387,6 +400,26 @@ class Launcher:
         self._pool = ThreadPoolExecutor(
             max_workers=self.budget.max_inflight, thread_name_prefix="spec"
         )
+        self._aloop: asyncio.AbstractEventLoop | None = None
+        self._aloop_lock = threading.Lock()
+
+    def loop(self) -> asyncio.AbstractEventLoop:
+        """One shared background event loop for every async tool. Coroutines
+        from different speculations run concurrently ON it, and tool clients
+        that bind themselves to a loop (aiohttp, httpx.AsyncClient) stay
+        valid across calls — which a per-call asyncio.run() would break."""
+        with self._aloop_lock:
+            if self._aloop is None:
+                self._aloop = asyncio.new_event_loop()
+                threading.Thread(
+                    target=_serve_loop, args=(self._aloop,), daemon=True, name="spec-aio"
+                ).start()
+            return self._aloop
+
+    def run_awaitable(self, aw: Any, timeout: float = 600.0) -> Any:
+        """Drive an awaitable to completion from a worker thread."""
+        fut = asyncio.run_coroutine_threadsafe(_as_coro(aw), self.loop())
+        return fut.result(timeout)
 
     def next_seq(self) -> int:
         with self._seq_lock:
@@ -465,9 +498,16 @@ class Launcher:
             run_fn = tool.spec_fn or tool.fn  # speculative-mode variant
             try:
                 if getattr(run_fn, "wants_spec", False):
-                    spec.result = run_fn(*args, _spec=spec, **kwargs)
+                    out = run_fn(*args, _spec=spec, **kwargs)
                 else:
-                    spec.result = run_fn(*args, **kwargs)
+                    out = run_fn(*args, **kwargs)
+                # an async tool hands back a coroutine: drive it here, so the
+                # speculation stores the VALUE. Storing the un-awaited
+                # coroutine would make every claim hit return garbage while
+                # the tool never ran at all.
+                if inspect.isawaitable(out):
+                    out = self.run_awaitable(out)
+                spec.result = out
                 if spec.state != "evicted":
                     spec.state = "ready"
             except BaseException as e:  # surfaced at claim/force point
@@ -485,7 +525,43 @@ class Launcher:
         return spec
 
     def shutdown(self) -> None:
+        with self._aloop_lock:
+            loop, self._aloop = self._aloop, None
+        if loop is not None:
+            # cancel in-flight coroutines FIRST: a worker parked in
+            # run_awaitable() unblocks only when its future resolves, and a
+            # merely-stopped loop never resolves it — the pool's atexit join
+            # would then hang for the whole timeout.
+            asyncio.run_coroutine_threadsafe(_cancel_all_and_stop(), loop)
         self._pool.shutdown(wait=False, cancel_futures=True)
+
+
+async def _as_coro(aw: Any) -> Any:
+    return await aw
+
+
+async def _cancel_all_and_stop() -> None:
+    loop = asyncio.get_running_loop()
+    tasks = [t for t in asyncio.all_tasks(loop) if t is not asyncio.current_task()]
+    for t in tasks:
+        t.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    loop.stop()
+
+
+def _serve_loop(loop: asyncio.AbstractEventLoop) -> None:
+    """Own the loop end-to-end so it is CLOSED on its own thread — leaving it
+    to __del__ raises 'Invalid file descriptor' noise at interpreter exit."""
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_forever()
+    finally:
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except Exception:
+            pass
+        loop.close()
 
 
 def _preview(args: tuple, kwargs: dict, n: int = 60) -> str:
@@ -537,6 +613,10 @@ def make_real_hooks(
         tool = reg.get(name)
         assert tool is not None
 
+        if tool.is_async:
+            hooks[name] = _async_real_hook(tool, reg, store, bus)
+            continue
+
         def hook(*args: Any, _tool=tool, **kwargs: Any):
             if not _tool.speculatable:
                 return _tool.fn(*args, **kwargs)  # never speculated: passthrough
@@ -577,6 +657,83 @@ def make_real_hooks(
     return hooks
 
 
+def _async_real_hook(tool: ToolSpec, reg: ToolRegistry, store: SpecStore, bus: EventBus):
+    """Claim-or-run for an `async def` tool. The hook is itself a coroutine
+    function, so model code keeps its natural shape (`await llm(x)`,
+    `asyncio.gather(...)`) — and a claim never blocks the caller's event loop,
+    so sibling gather branches that MISSED still run concurrently."""
+
+    async def hook(*args: Any, _tool=tool, **kwargs: Any):
+        if not _tool.speculatable:
+            return await _tool.fn(*args, **kwargs)
+        if _tool.batched and args and isinstance(args[0], (list, tuple)):
+            single = _single_of(_tool, reg)
+            prompts, rest = list(args[0]), tuple(args[1:])
+            out: list[Any] = [None] * len(prompts)
+            misses, claimed = [], []
+            for i, p in enumerate(prompts):
+                key = spec_key(single, (p,) + rest, kwargs)
+                spec = store.claim(key, reuse=single.deterministic)
+                if spec is None:
+                    bus.emit("claim_miss", key=key, tool=single.name)
+                    misses.append(i)
+                else:
+                    bus.emit(
+                        "claim_hit",
+                        key=key,
+                        seq=spec.seq,
+                        tool=single.name,
+                        already_ready=spec.done.is_set(),
+                    )
+                    claimed.append((i, spec))
+            # the misses' batch call and every claim wait overlap
+            async def _fill_misses():
+                if not misses:
+                    return
+                res = await _tool.fn([prompts[i] for i in misses], *rest, **kwargs)
+                for j, i in enumerate(misses):
+                    out[i] = res[j]
+
+            async def _fill_claim(i, spec):
+                out[i] = await _await_spec(spec)
+                spec.state = "claimed"
+                spec.t_claim = time.perf_counter()
+
+            await asyncio.gather(
+                _fill_misses(), *[_fill_claim(i, s) for i, s in claimed]
+            )
+            return out
+        key = spec_key(_tool, tuple(args), kwargs)
+        t0 = time.perf_counter()
+        spec = store.claim(key, reuse=_tool.deterministic)
+        if spec is None:
+            bus.emit("claim_miss", key=key, tool=_tool.name)
+            return await _tool.fn(*args, **kwargs)  # miss: the baseline path
+        bus.emit(
+            "claim_hit", key=key, seq=spec.seq, tool=_tool.name, already_ready=spec.done.is_set()
+        )
+        result = await _await_spec(spec)
+        spec.state = "claimed"
+        spec.t_claim = time.perf_counter()
+        bus.emit(
+            "claim_done",
+            key=key,
+            seq=spec.seq,
+            waited_ms=(time.perf_counter() - t0) * 1000,
+            saved_ms=max(0.0, (t0 - spec.t_dispatch)) * 1000,
+        )
+        return result
+
+    return hook
+
+
+async def _await_spec(spec: Speculation, timeout: float = 600.0) -> Any:
+    """Wait for an in-flight speculation without stalling the event loop."""
+    if spec.done.is_set():
+        return spec.wait(0)
+    return await asyncio.to_thread(spec.wait, timeout)
+
+
 def make_baseline_hooks(reg: ToolRegistry) -> dict[str, Callable]:
     hooks: dict[str, Callable] = {}
     for name in reg.names():
@@ -584,7 +741,7 @@ def make_baseline_hooks(reg: ToolRegistry) -> dict[str, Callable]:
         assert tool is not None
 
         def hook(*args: Any, _tool=tool, **kwargs: Any):
-            return _tool.fn(*args, **kwargs)
+            return _tool.fn(*args, **kwargs)  # async: returns the coroutine
 
         hooks[name] = hook
     return hooks
