@@ -87,8 +87,11 @@ class SpecSession:
     """Store + launcher + hook factories around a host's tool registry (L2)."""
 
     def __init__(
-        self, registry: ToolRegistry, bus: EventBus | None = None,
-        max_inflight: int = 16, max_dispatches_per_turn: int = 2048,
+        self,
+        registry: ToolRegistry,
+        bus: EventBus | None = None,
+        max_inflight: int = 16,
+        max_dispatches_per_turn: int = 2048,
         taint_skip: bool = True,
     ) -> None:
         self.reg = registry
@@ -96,9 +99,10 @@ class SpecSession:
         self.taint_skip = taint_skip
         self.store = SpecStore(self.bus)
         self.launcher = Launcher(
-            self.store, self.bus,
-            Budget(max_inflight=max_inflight,
-                   max_dispatches_per_turn=max_dispatches_per_turn))
+            self.store,
+            self.bus,
+            Budget(max_inflight=max_inflight, max_dispatches_per_turn=max_dispatches_per_turn),
+        )
 
     def real_hooks(self) -> dict:
         return make_real_hooks(self.reg, self.store, self.launcher, self.bus)
@@ -182,8 +186,10 @@ class Speculator:
     def session(self) -> SpecSession:
         if self._session is None:
             self._session = SpecSession(
-                self.registry, self.bus,
-                max_inflight=self.max_inflight, taint_skip=self.taint_skip,
+                self.registry,
+                self.bus,
+                max_inflight=self.max_inflight,
+                taint_skip=self.taint_skip,
             )
         return self._session
 

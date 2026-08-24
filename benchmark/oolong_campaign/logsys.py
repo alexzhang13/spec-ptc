@@ -17,8 +17,12 @@ class TrajectoryLogger:
         self.t0 = time.time()
 
     def log(self, kind: str, **data) -> None:
-        rec = {"t": round(time.time(), 4), "rel_t": round(time.time() - self.t0, 4),
-               "kind": kind, **data}
+        rec = {
+            "t": round(time.time(), 4),
+            "rel_t": round(time.time() - self.t0, 4),
+            "kind": kind,
+            **data,
+        }
         with self._lock:
             self._f.write(json.dumps(rec, default=str) + "\n")
 

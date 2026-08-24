@@ -28,49 +28,34 @@ from spec_ptc import Speculator
 
 spec = Speculator()
 
-@spec.tool(speculatable=True, pure=True) # add as tool to be speculated
+
+@spec.tool(speculatable=True, pure=True)  # add as tool to be speculated
 def llm_query(prompt: str) -> str:
     return sub_lm.complete(prompt)
 
-@spec.tool()                            # side effects: never speculated
+
+@spec.tool()  # side effects: never speculated
 def send_report(text: str) -> str:
     return mail.send(text)
 
-ns.update(spec.hooks())                 # same names, claim-or-run
+
+ns.update(spec.hooks())  # same names, claim-or-run
 
 code = ""
-with spec.turn(repl_locals=ns) as t:    # snapshot → discarded shadow fork
+with spec.turn(repl_locals=ns) as t:  # snapshot → discarded shadow fork
     for delta in model_stream:
         code += delta
-        t.feed(delta)                   # closed stmts launch calls now
-exec(code, ns)                          # hits return immediately
+        t.feed(delta)  # closed stmts launch calls now
+exec(code, ns)  # hits return immediately
 ```
 
 For the [RLM](https://github.com/alexzhang13/rlm) this is one line: `from demo.rlm import patch_rlm; patch_rlm()`.
 
 `example.py` is an example you can start with for looking how this is done for the RLM.
 
-## Try it
 
-```bash
-uv sync
-just serve && just status     # two vLLM endpoints (main coder + sub-model)
-just demo                     # spec vs serial: a real RLM on an OOLONG 32k task
-just codeact                  # interactive CodeAct TUI over the same endpoints
-```
-
-`uv run python example.py` is the same task without the race TUI.
-
-## Plugging it in
-
-**Your Python REPL.** `Speculator` above is the whole in-process API.
-`SpeculativeLocalREPL` is a drop-in `LocalREPL` subclass. The demos use
-`Harness` (`src/runtime/harness.py`) — stream → shadow → real exec.
-
-**The daemon** — any language, any process. `spec-ptc-daemon` runs the same
-shadow + store out of process (default socket `/tmp/spec-ptc.sock`). It owns
-speculative execution against its own endpoints; the host stays dumb. Four
-JSON-lines messages:
+For arbitrary harness, we provide a simple daemon `spec-ptc-daemon` that runs the same
+shadow + store out of process (default socket `/tmp/spec-ptc.sock`) with four JSON-lines messages:
 
 ```
 turn_begin {vars}      snapshot REPL variables into the shadow
@@ -80,16 +65,13 @@ turn_end               evict leftovers, return hit/miss counts
 ```
 
 ```python
-from plugins.client import SpecClient   # ~60 lines, stdlib only — copy it
+from plugins.client import SpecClient  # ~60 lines, stdlib only — copy it
 
 c = SpecClient()
 c.turn_begin({"context": doc})
-c.feed(delta)                           # per streamed token
+c.feed(delta)  # per streamed token
 hit = c.resolve("llm_query", [prompt])  # result, or None → call it yourself
 c.turn_end()
 ```
 
 Wrappers in `plugins/`: Claude Code (`PreToolUse`), OpenCode, Pi-mono.
-
-**Another language.** Same claim/dispatch loop natively — `plugins/bun/` is a
-working JS reference (Proxy + `Atomics.wait`).

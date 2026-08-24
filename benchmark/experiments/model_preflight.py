@@ -17,12 +17,19 @@ for model, tp, util in CONFIGS:
         stop_server(proc)
         continue
     import time
+
     from openai import OpenAI
+
     c = OpenAI(base_url=f"http://localhost:{PORT}/v1", api_key="EMPTY")
     t0 = time.perf_counter()
-    r = c.chat.completions.create(model=model, max_tokens=60, messages=[
-        {"role": "user", "content": "Write one line of python that sums 1..10."}])
-    print(f"   OK {time.perf_counter()-t0:.1f}s -> {r.choices[0].message.content[:100]!r}",
-          flush=True)
+    r = c.chat.completions.create(
+        model=model,
+        max_tokens=60,
+        messages=[{"role": "user", "content": "Write one line of python that sums 1..10."}],
+    )
+    print(
+        f"   OK {time.perf_counter() - t0:.1f}s -> {r.choices[0].message.content[:100]!r}",
+        flush=True,
+    )
     stop_server(proc)
 print("PREFLIGHT DONE", flush=True)

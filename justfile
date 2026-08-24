@@ -1,5 +1,9 @@
 set shell := ["bash", "-cu"]
 
+# one-time per clone: enable the ruff+pytest pre-commit hook
+hooks:
+    git config core.hooksPath .githooks
+
 test:
     PATH=$HOME/.bun/bin:$PATH uv run pytest tests/ -q
 

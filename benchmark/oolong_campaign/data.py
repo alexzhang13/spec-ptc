@@ -17,7 +17,7 @@ COMPARISON_PHRASES = ("more common than", "less common than", "same frequency as
 @dataclass
 class Task:
     task_id: str
-    dataset: str            # trec_coarse_131072 | oolong_pairs_32768
+    dataset: str  # trec_coarse_131072 | oolong_pairs_32768
     context: str
     question: str
     hint: str
@@ -28,23 +28,41 @@ class Task:
 def load_tasks(n_trec: int = 4, n_pairs: int = 4, seed: int = 7) -> list[Task]:
     rng = random.Random(seed)
     val = load_dataset("oolongbench/oolong-synth", split="validation")
-    trec = [r for r in val if r["dataset"] == "trec_coarse"
-            and int(r["context_len"]) == 131072]
+    trec = [r for r in val if r["dataset"] == "trec_coarse" and int(r["context_len"]) == 131072]
     rng.shuffle(trec)
-    tasks = [Task(f"trec132k-{r['id']}", "trec_coarse_131072",
-                  r["context_window_text"], r["question"], HINT_V8_TREC,
-                  str(r["answer"]), str(r["answer_type"]))
-             for r in trec[:n_trec]]
+    tasks = [
+        Task(
+            f"trec132k-{r['id']}",
+            "trec_coarse_131072",
+            r["context_window_text"],
+            r["question"],
+            HINT_V8_TREC,
+            str(r["answer"]),
+            str(r["answer_type"]),
+        )
+        for r in trec[:n_trec]
+    ]
 
-    ctx32 = next(r for r in val if r["dataset"] == "trec_coarse"
-                 and int(r["context_len"]) == 32768)["context_window_text"]
-    p = hf_hub_download("mit-oasys/oolong-pairs", "data/oolong-pairs-32768.json",
-                        repo_type="dataset")
+    ctx32 = next(
+        r for r in val if r["dataset"] == "trec_coarse" and int(r["context_len"]) == 32768
+    )["context_window_text"]
+    p = hf_hub_download(
+        "mit-oasys/oolong-pairs", "data/oolong-pairs-32768.json", repo_type="dataset"
+    )
     pairs = json.load(open(p))
     rng.shuffle(pairs)
-    tasks += [Task(f"pairs32k-{r['id']}", "oolong_pairs_32768", ctx32,
-                   r["question"], HINT_V8_PAIRS, str(r["answer"]), r["type"])
-              for r in pairs[:n_pairs]]
+    tasks += [
+        Task(
+            f"pairs32k-{r['id']}",
+            "oolong_pairs_32768",
+            ctx32,
+            r["question"],
+            HINT_V8_PAIRS,
+            str(r["answer"]),
+            r["type"],
+        )
+        for r in pairs[:n_pairs]
+    ]
     return tasks
 
 

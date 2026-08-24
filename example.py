@@ -13,9 +13,15 @@ from demo.rlm import SpeculativeLocalREPL
 envs.local_repl.LocalREPL = SpeculativeLocalREPL
 envs.LocalREPL = SpeculativeLocalREPL
 
-pairs = json.load(open(hf_hub_download(
-    "mit-oasys/oolong-pairs", "data/oolong-pairs-32768.json", repo_type="dataset",
-)))
+pairs = json.load(
+    open(
+        hf_hub_download(
+            "mit-oasys/oolong-pairs",
+            "data/oolong-pairs-32768.json",
+            repo_type="dataset",
+        )
+    )
+)
 context = next(
     r["context_window_text"]
     for r in load_dataset("oolongbench/oolong-synth", split="validation")

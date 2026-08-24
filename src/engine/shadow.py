@@ -71,9 +71,26 @@ def snapshot_ns(ns: dict) -> dict:
 # these constantly (re, json, collections...) and blocking them silenced whole
 # turns. random/os/time stay blocked (nondeterminism / effects).
 _SHADOW_IMPORT_WHITELIST = {
-    "re", "json", "math", "itertools", "collections", "functools", "operator",
-    "statistics", "string", "textwrap", "heapq", "bisect", "difflib", "ast",
-    "unicodedata", "fractions", "decimal", "copy", "typing", "dataclasses",
+    "re",
+    "json",
+    "math",
+    "itertools",
+    "collections",
+    "functools",
+    "operator",
+    "statistics",
+    "string",
+    "textwrap",
+    "heapq",
+    "bisect",
+    "difflib",
+    "ast",
+    "unicodedata",
+    "fractions",
+    "decimal",
+    "copy",
+    "typing",
+    "dataclasses",
 }
 
 

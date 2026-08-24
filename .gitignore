@@ -16,4 +16,5 @@ bench_out/
 tests/
 benchmark/oolong_campaign/runs/
 *.md
+*.sbatch
 !/README.md

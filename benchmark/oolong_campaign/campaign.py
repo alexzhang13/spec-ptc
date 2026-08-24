@@ -29,23 +29,34 @@ def main(campaign_id: str = "main") -> None:
     base = ROOT / "benchmark" / "oolong_campaign" / "runs" / campaign_id
     base.mkdir(parents=True, exist_ok=True)
     tasks = load_tasks(N_TREC, N_PAIRS)
-    (base / "manifest.json").write_text(json.dumps({
-        "hint": HINT_NAME, "models": MODELS, "concurrencies": CONCURRENCIES,
-        "repeats": REPEATS, "tasks": [t.task_id for t in tasks],
-        "started": time.time()}, indent=1, default=str))
+    (base / "manifest.json").write_text(
+        json.dumps(
+            {
+                "hint": HINT_NAME,
+                "models": MODELS,
+                "concurrencies": CONCURRENCIES,
+                "repeats": REPEATS,
+                "tasks": [t.task_id for t in tasks],
+                "started": time.time(),
+            },
+            indent=1,
+            default=str,
+        )
+    )
 
     for model, tp, util in MODELS:
         mtag = model.split("/")[-1]
-        pending = [(spec, conc, rep)
-                   for spec in (False, True)
-                   for conc in CONCURRENCIES
-                   for rep in range(1, REPEATS + 1)
-                   if not (base / f"{mtag}/spec={spec}_c{conc}_r{rep}/DONE").exists()]
+        pending = [
+            (spec, conc, rep)
+            for spec in (False, True)
+            for conc in CONCURRENCIES
+            for rep in range(1, REPEATS + 1)
+            if not (base / f"{mtag}/spec={spec}_c{conc}_r{rep}/DONE").exists()
+        ]
         if not pending:
             print(f"### {mtag}: all units done, skipping server", flush=True)
             continue
-        print(f"### starting server {mtag} tp={tp} ({len(pending)} units pending)",
-              flush=True)
+        print(f"### starting server {mtag} tp={tp} ({len(pending)} units pending)", flush=True)
         proc = start_server(model, tp, util)
         if not wait_health(proc, timeout=3600):
             print(f"### SERVER FAILED for {mtag} — skipping model", flush=True)
@@ -59,10 +70,12 @@ def main(campaign_id: str = "main") -> None:
                 t0 = time.time()
                 stats = run_unit(model, url, spec, conc, rep, tasks, unit)
                 (unit / "DONE").write_text(str(time.time()))
-                print(f"    unit_wall={stats['unit_wall_s']:.0f}s "
-                      f"task_mean={stats['task_wall_mean_s']:.0f}s "
-                      f"score={stats['score_mean']:.2f} errors={stats['n_errors']}",
-                      flush=True)
+                print(
+                    f"    unit_wall={stats['unit_wall_s']:.0f}s "
+                    f"task_mean={stats['task_wall_mean_s']:.0f}s "
+                    f"score={stats['score_mean']:.2f} errors={stats['n_errors']}",
+                    flush=True,
+                )
                 _ = t0
         finally:
             stop_server(proc)
