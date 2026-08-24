@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Speculative programmatic tool calling for CodeAct/RLM-style harnesses"
 requires-python = ">=3.12"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Alex Zhang", email = "az@primeintellect.ai" }]
 classifiers = [
     "Programming Language :: Python :: 3.12",
@@ -38,7 +40,7 @@ dev = [
 spec-ptc-daemon = "spec_ptc.daemon:main"
 
 [build-system]
-requires = ["setuptools>=75"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 # On disk the package is src/; installed / imported as spec_ptc (PyPI-ready).
