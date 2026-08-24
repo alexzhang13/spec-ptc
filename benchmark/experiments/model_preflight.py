@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).parent))
 from model_sweep import PORT, start_server, stop_server, wait_health  # noqa: E402
 

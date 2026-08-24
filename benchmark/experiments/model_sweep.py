@@ -4,14 +4,12 @@ import json
 import os
 import statistics
 import subprocess
-import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path("/shared/home/altzhang-de4f8c/spec-ptc")
-sys.path.insert(0, str(ROOT / "src"))
 VLLM_PY = str(ROOT / ".venv-vllm/bin/python")
 PORT = 8210
 
@@ -102,7 +100,7 @@ def stop_server(proc):
 
 def bench_config(model: str, tp: int) -> list[dict]:
     from benchmark.bench import run_scenario
-    from demo import get_scenario
+    from benchmark.scenarios import get_scenario
     from demo.live import HybridEngine
     from spec_ptc.runtime.engines import VLLMEngine
 

@@ -1,8 +1,12 @@
-# sPTC - Speculative programmatic tool / sub-agent calling
+# Speculative Programmatic Tool Calling
 
-Many harness designs like RLMs and CodeAct rely on programmatic tool-calling (PTC), where all tools are embedded as functions inside a single code REPL tool that is generated per turn. For RLMs in particular, sub-LLM and sub-RLM calls are expensive, often blocking tools in code that take up a majority of the runtime. sPTC is the general technique of speculating tool and sub-LLM calls that will happen as the root LLM is generating the codeblock, allowing the RLM to batch and asynchronously compute these expensive calls while the full codeblock is still being generated to overlap these calls with the logic of the code REPL.
+Speculative programmatic tool-calling (**sPTC**) is a technique for harnesses that use tools like sub-agents / sub-calls in code. While the LLM is streaming tokens to generate a REPL call, **sPTC** speculates and queues up tool calls in the partially-generated code that act as Futures when the actual code is executed.
 
-This repository is a simple library and demo for this technique.
+Learn more in [**the blogpost here**](https://alexzhang13.github.io/blog/2026/spec-ptc/).
+
+<video src="media/comparison.mp4" controls width="100%"></video>
+
+Many harness designs like [Recursive Language Models (RLMs)](https://arxiv.org/abs/2512.24601) and [CodeAct](https://arxiv.org/abs/2402.01030) rely on [programmatic tool-calling (PTC)](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling), where all tools are embedded as functions inside a single code REPL tool that is generated per turn. For RLMs in particular, sub-LLM and sub-RLM calls are expensive, often blocking tools in code that take up a majority of the runtime. sPTC is the general technique of speculating tool and sub-LLM calls that will happen as the root LLM is generating the codeblock, allowing the RLM to batch and asynchronously compute these expensive calls while the full codeblock is still being generated to overlap these calls with the logic of the code REPL.
 
 ```
 baseline   tokens──────────────────▶ exec: call₁──▶call₂──▶…──▶callₙ──▶ answer
@@ -11,70 +15,81 @@ spec-ptc   tokens──────────────────▶ exec:
                   ╲ call₂ ▶▶▶ done╱     (calls run inside generation time)
 ```
 
-Run the tool calls inside a model's code **while the model is still writing
-the code**. For RLM/CodeAct-style harnesses where the model composes
-`llm_query()` sub-calls in Python: spec-ptc watches the token stream, executes
-the program speculatively in a jailed shadow of the REPL, dispatches sub-LM
-calls the moment their arguments are knowable (often before their statement
-even finishes streaming), and lets the real execution claim the results.
-**Wrong speculation wastes a call; it can never corrupt a result. A miss costs
-one hash lookup — it is never slower than not speculating.**
+This repository is a simple library and demo for this technique.
 
+## Getting Started
 
-Measured (deterministic mock LMs): **2.4× geomean** over 30 fixed scenarios,
-up to **8.7×** on wide maps, ~1.0× (never worse) on adversarial inputs.
+The `Speculator` object is used to track and store tools to be speculated, as well as the shadow REPL that is used to speculate. You can add tools with the `spec.tool` decorator and control whether you want them to be speculated or not.
 
-## Use it (30 seconds)
+The simplest example is to install tool hooks into the REPL you already have, feed tokens as they stream and feed them to the speculator, then `exec` as usual when finished:
 
 ```python
 from spec_ptc import Speculator
 
 spec = Speculator()
 
-@spec.tool(speculatable=True, pure=True)     # explicit opt-in; pure required
-def llm_query(prompt: str) -> str: ...
+@spec.tool(speculatable=True, pure=True) # add as tool to be speculated
+def llm_query(prompt: str) -> str:
+    return sub_lm.complete(prompt)
 
-@spec.tool()                                 # side effects: never speculated
-def send_report(text: str) -> str: ...
+@spec.tool()                            # side effects: never speculated
+def send_report(text: str) -> str:
+    return mail.send(text)
 
-ns.update(spec.hooks())                      # claiming hooks for your REPL
-with spec.turn(repl_locals=ns) as t:         # per model turn
+ns.update(spec.hooks())                 # same names, claim-or-run
+
+code = ""
+with spec.turn(repl_locals=ns) as t:    # snapshot → discarded shadow fork
     for delta in model_stream:
-        t.feed(delta)
-exec(code, ns)                               # claims land automatically
+        code += delta
+        t.feed(delta)                   # closed stmts launch calls now
+exec(code, ns)                          # hits return immediately
 ```
 
-RLM integration is one call — `from demo.rlm import patch_rlm; patch_rlm()` — and
-out-of-process harnesses run `spec-ptc-daemon` and speak 4 JSON-lines
-messages (vendorable client: `plugins/client.py`; Pi/CC/OpenCode wrappers in `plugins/`).
+For the [RLM](https://github.com/alexzhang13/rlm) this is one line: `from demo.rlm import patch_rlm; patch_rlm()`.
+
+`example.py` is an example you can start with for looking how this is done for the RLM.
 
 ## Try it
 
 ```bash
 uv sync
-just list                     # 34 demo scenarios
-just play oolong-mood-agg     # console demo: watch dispatch/ready/claim live
-just demo oolong-mood-agg     # 4-panel TUI: speculating vs actually-running
-uv run python -m benchmark.bench   # full suite + never-slower guard
-just serve                    # vLLM on slurm node4, then: just demo-live
+just serve && just status     # two vLLM endpoints (main coder + sub-model)
+just demo                     # spec vs serial: a real RLM on an OOLONG 32k task
+just codeact                  # interactive CodeAct TUI over the same endpoints
 ```
+
+`uv run python example.py` is the same task without the race TUI.
 
 ## Plugging it in
 
-`api.py` defines four integration levels: use the harness (L1); install
-claim-hooks into your own Python REPL (L2 — `SpeculativeLocalREPL` is a
-drop-in RLM `LocalREPL` subclass); speak 4 JSON-lines messages to the daemon
-from any process (L3 — Claude Code / OpenCode / Pi-mono; vendorable client in
-`plugins/client.py`); or implement the executor protocol natively (L4 —
-`bun/` is a working JS reference).
+**Your Python REPL.** `Speculator` above is the whole in-process API.
+`SpeculativeLocalREPL` is a drop-in `LocalREPL` subclass. The demos use
+`Harness` (`src/runtime/harness.py`) — stream → shadow → real exec.
 
-## Layout
+**The daemon** — any language, any process. `spec-ptc-daemon` runs the same
+shadow + store out of process (default socket `/tmp/spec-ptc.sock`). It owns
+speculative execution against its own endpoints; the host stays dumb. Four
+JSON-lines messages:
 
 ```
-src/spec_ptc/   the technique: speculator (frontend) · tools · speculation ·
-                streaming · shadow · harness · events · engines · daemon
-demo/           a consumer: TUI, console player, live RLM loop, scenarios, RLM adapter
-plugins/        another consumer: daemon client + Pi / Claude Code / OpenCode wrappers + Bun
-benchmark/      all measurement: fixed/random/geometry/failure benches + live experiments
+turn_begin {vars}      snapshot REPL variables into the shadow
+feed {delta}           stream tokens; the daemon launches calls
+resolve {tool, args}   → hit{result} | miss   (miss: run the tool yourself)
+turn_end               evict leftovers, return hit/miss counts
 ```
-Core never imports the other layers.
+
+```python
+from plugins.client import SpecClient   # ~60 lines, stdlib only — copy it
+
+c = SpecClient()
+c.turn_begin({"context": doc})
+c.feed(delta)                           # per streamed token
+hit = c.resolve("llm_query", [prompt])  # result, or None → call it yourself
+c.turn_end()
+```
+
+Wrappers in `plugins/`: Claude Code (`PreToolUse`), OpenCode, Pi-mono.
+
+**Another language.** Same claim/dispatch loop natively — `plugins/bun/` is a
+working JS reference (Proxy + `Atomics.wait`).

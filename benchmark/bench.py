@@ -8,7 +8,7 @@ import statistics
 import time
 from pathlib import Path
 
-from demo import CATALOG, Scenario
+from benchmark.scenarios import CATALOG, Scenario
 from spec_ptc.contracts.events import EventBus
 from spec_ptc.runtime.engines import MockLM
 from spec_ptc.runtime.harness import MODES, Harness, collect

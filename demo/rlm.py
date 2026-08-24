@@ -37,6 +37,10 @@ class SpeculativeLocalREPL(LocalREPL):
         )
         self.reg.register("llm_query_batched", base_batched, speculatable=True, pure=True,
                           batched=True, latency_hint_ms=2000)
+        # unmarked (never speculated): the shadow returns an inert marker
+        # instead of NameError-aborting or recursing into a real sub-RLM
+        self.reg.register("rlm_query", LocalREPL._rlm_query.__get__(self))
+        self.reg.register("rlm_query_batched", LocalREPL._rlm_query_batched.__get__(self))
         self.session = SpecSession(self.reg, self.bus, max_inflight=spec_max_inflight,
                                    max_dispatches_per_turn=4096)
         self.spec_store = self.session.store

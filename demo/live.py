@@ -1,8 +1,8 @@
-from spec_ptc.runtime.engines import MockLM, VLLMEngine, engine_from_env  # noqa: F401
-
 """Live vLLM wiring: read .endpoints.env written by infra/serve.sbatch."""
 
 from __future__ import annotations
+
+from spec_ptc.runtime.engines import MockLM, VLLMEngine, engine_from_env  # noqa: F401
 
 
 class HybridEngine:
@@ -36,26 +36,47 @@ Rules:
 """
 
 
-def run_live(scenario_name: str, mode: str = "spec", max_turns: int = 4, bus=None, engine=None):
-    """Full-live RLM loop: the MAIN model writes the repl code for a real
-    scenario context; sub-calls speculate as it streams."""
-    from demo.scenarios import get_scenario
-    from spec_ptc.contracts.events import EventBus
-    from spec_ptc.runtime.harness import Harness
+def instrument_inline_calls(h, bus, solve_dp_preview: str = "matrix") -> None:
+    """Baseline hooks are silent; wrap them so a UI can show each call the
+    moment real execution reaches it (call_begin/call_end, cid-keyed)."""
+    import itertools
+    import time
 
-    sc = get_scenario(scenario_name)
-    bus = bus or EventBus()
-    eng = engine or engine_from_env(bus=bus)
-    h = Harness(eng, mode, bus=bus, context=sc.context)
-    question = sc.description
-    messages = [
-        {"role": "system", "content": RLM_SYSTEM},
-        {
-            "role": "user",
-            "content": f"Question: {question}\n"
-            f"(context is loaded; len(context) = {len(sc.context)} chars)",
-        },
-    ]
+    cid = itertools.count()
+
+    def preview_of(name, args):
+        if name == "solve_dp":
+            return solve_dp_preview
+        if args and isinstance(args[0], str):
+            return args[0][:56]
+        if args and isinstance(args[0], (list, tuple)) and args[0]:
+            return str(args[0][0])[:56]
+        return ""
+
+    def wrap(name, fn):
+        def hook(*a, **kw):
+            i = next(cid)
+            n = (
+                len(a[0])
+                if name.endswith("_batched") and a and isinstance(a[0], (list, tuple))
+                else 1
+            )
+            bus.emit("call_begin", cid=i, tool=name, n=n, preview=preview_of(name, a))
+            t0 = time.perf_counter()
+            try:
+                return fn(*a, **kw)
+            finally:
+                bus.emit("call_end", cid=i, tool=name, ms=(time.perf_counter() - t0) * 1000)
+
+        return hook
+
+    for name in list(h.exec_hooks):
+        h.exec_hooks[name] = wrap(name, h.exec_hooks[name])
+
+
+def rlm_turns(h, eng, messages: list, max_turns: int = 6) -> str | None:
+    """Run the RLM loop on an existing Harness until answer['ready'] or the
+    turn budget runs out. Mutates `messages` in place; returns the answer."""
     final = None
     for _ in range(max_turns):
         out = h.run_turn(eng.stream_main(messages))
@@ -71,5 +92,4 @@ def run_live(scenario_name: str, mode: str = "spec", max_turns: int = 4, bus=Non
             or "(no repl block found — emit one)"
         )
         messages.append({"role": "user", "content": f"REPL output:\n{stdout[:2000]}"})
-    h.launcher.shutdown()
-    return final, h, bus
+    return final

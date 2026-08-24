@@ -6,9 +6,12 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 .endpoints.env
+build/
+*.egg-info/
 
 # local-only: cluster scripts, run artifacts, private notes & tests
 infra/
+/.claude/
 bench_out/
 tests/
 benchmark/oolong_campaign/runs/
