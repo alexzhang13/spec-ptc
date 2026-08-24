@@ -72,3 +72,34 @@ def test_adapter_miss_path_matches_stock():
     assert result.final_answer == "ans(direct)"
     misses = sum(1 for e in repl.bus.history if e.kind == "claim_miss")
     assert misses == 1
+
+
+def test_helper_defined_in_earlier_turn_still_speculates():
+    """A fn defined in turn N carries __globals__ -> the real repl globals, so without
+    a rebind the shadow ran its sub-calls for real: 0 hits, 2x calls, 2x wall."""
+    from demo.rlm import SpeculativeLocalREPL
+
+    calls = []
+
+    def counting_llm(prompt, model=None):
+        calls.append(prompt)
+        time.sleep(0.05)
+        return "cat"
+
+    repl = SpeculativeLocalREPL(context_payload="ctx", subcall_override=counting_llm)
+    repl.execute_code(
+        "def classify(q):\n    return llm_query('C: ' + q)\n\n"
+        "out1 = [classify('q%d' % i) for i in range(8)]"
+    )
+    n_after_define = len(calls)
+    assert n_after_define == 8
+
+    # turn 2 reuses classify WITHOUT redefining it
+    t0 = time.perf_counter()
+    repl.execute_code("out2 = [classify('z%d' % i) for i in range(8)]")
+    wall = time.perf_counter() - t0
+    hits = sum(1 for e in repl.bus.history if e.kind == "claim_hit")
+    assert repl.locals["out2"] == ["cat"] * 8
+    assert len(calls) - n_after_define == 8, "block executed twice (shadow + real)"
+    assert hits == 16, f"cross-turn helper did not speculate: {hits} hits"
+    assert wall < 8 * 0.05, f"no fan-out on reused helper: {wall:.2f}s"

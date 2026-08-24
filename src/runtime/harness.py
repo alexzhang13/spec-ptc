@@ -72,6 +72,11 @@ REAL_BUILTINS = {
         "object",
         "super",
         "__import__",
+        "__build_class__",  # class statements (suite: class_method)
+        "type",
+        "property",
+        "staticmethod",
+        "classmethod",
         "open",
         "Exception",
         "BaseException",

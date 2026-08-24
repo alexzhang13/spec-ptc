@@ -9,6 +9,7 @@ import queue
 import threading
 import time
 from collections import Counter
+from types import FunctionType
 
 from spec_ptc.contracts.events import NULL_BUS, EventBus
 from spec_ptc.contracts.tools import NonSpeculated, contains_nonspec
@@ -38,6 +39,14 @@ class Opaque:
 
     def __iter__(self):
         raise RuntimeError(f"opaque value {self._name!r} touched in shadow")
+
+
+def _rebind(fn: FunctionType, ns: dict) -> FunctionType:
+    """Same code, resolving globals in the shadow namespace instead of the real one."""
+    out = FunctionType(fn.__code__, ns, fn.__name__, fn.__defaults__, fn.__closure__)
+    out.__dict__.update(fn.__dict__)
+    out.__kwdefaults__ = fn.__kwdefaults__
+    return out
 
 
 def snapshot_ns(ns: dict) -> dict:
@@ -161,6 +170,11 @@ class ShadowRunner:
         self.ns.update(snapshot_ns(real_locals))
         self.ns.update(shadow_hooks)
         self.ns["__builtins__"] = shadow_builtins(real_builtins)
+        self.ns.setdefault("__name__", "__main__")  # class stmts need it
+        # cross-turn helpers keep __globals__ on the real (claiming) hooks
+        for k, v in list(self.ns.items()):
+            if isinstance(v, FunctionType) and k not in shadow_hooks:
+                self.ns[k] = _rebind(v, self.ns)
         self._q: queue.Queue[Segment | None] = queue.Queue()
         self.aborted: str | None = None
         self.executed = 0
@@ -222,7 +236,7 @@ class ShadowRunner:
         if self.taint_skip:
             tainted = sorted(n for n in reads if contains_nonspec(self.ns.get(n)))
             if tainted:
-                for name in _bound_names(tree):
+                for name in _bound_names(tree) - _comp_local_names(tree):
                     self.ns[name] = NonSpeculated("tainted:" + "+".join(tainted))
                 self.bus.emit(
                     "shadow_skip",
@@ -325,6 +339,20 @@ def _read_names(tree: ast.AST) -> set[str]:
     return {
         n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
     }
+
+
+def _comp_local_names(tree: ast.AST) -> set[str]:
+    """Comprehension/lambda-local targets. They never leak in Python 3, so
+    poisoning them would taint unrelated later statements reusing the name."""
+    out: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            for g in n.generators:
+                out |= {x.id for x in ast.walk(g.target)
+                        if isinstance(x, ast.Name)}
+        elif isinstance(n, ast.Lambda):
+            out |= {a.arg for a in n.args.args}
+    return out
 
 
 def _bound_names(tree: ast.AST) -> set[str]:
