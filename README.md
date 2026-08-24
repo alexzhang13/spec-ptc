@@ -19,6 +19,12 @@ This repository is a simple library and demo for this technique.
 
 ## Getting Started
 
+You can either clone this repository (uses `uv`), or install with:
+
+```bash
+pip install spec-ptc
+```
+
 The `Speculator` object is used to track and store tools to be speculated, as well as the shadow REPL that is used to speculate. You can add tools with the `spec.tool` decorator and control whether you want them to be speculated or not.
 
 The simplest example is to install tool hooks into the REPL you already have, feed tokens as they stream and feed them to the speculator, then `exec` as usual when finished:
