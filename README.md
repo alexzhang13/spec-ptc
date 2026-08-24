@@ -4,7 +4,7 @@ Speculative programmatic tool-calling (**sPTC**) is a technique for harnesses th
 
 Learn more in [**the blogpost here**](https://alexzhang13.github.io/blog/2026/spec-ptc/).
 
-<video src="media/comparison.mp4" controls width="100%"></video>
+https://github.com/user-attachments/assets/3b48aa0d-9500-443f-9b13-cf6d9db96d98
 
 Many harness designs like [Recursive Language Models (RLMs)](https://arxiv.org/abs/2512.24601) and [CodeAct](https://arxiv.org/abs/2402.01030) rely on [programmatic tool-calling (PTC)](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling), where all tools are embedded as functions inside a single code REPL tool that is generated per turn. For RLMs in particular, sub-LLM and sub-RLM calls are expensive, often blocking tools in code that take up a majority of the runtime. sPTC is the general technique of speculating tool and sub-LLM calls that will happen as the root LLM is generating the codeblock, allowing the RLM to batch and asynchronously compute these expensive calls while the full codeblock is still being generated to overlap these calls with the logic of the code REPL.
 
